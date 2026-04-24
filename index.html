@@ -177,6 +177,70 @@
       margin-left: 3px;
     }
 
+    .progress-track {
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(31, 42, 46, 0.10);
+      margin-top: 12px;
+      cursor: default;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      max-width: 100%;
+      transition: width 0.5s ease;
+    }
+
+    .stat-good .progress-fill { background: #3a9e6a; }
+    .stat-warn .progress-fill { background: #c9970a; }
+    .stat-over .progress-fill { background: #c0522a; }
+    .stat      .progress-fill { background: #8a9fa0; }
+
+    .assembly-panel {
+      margin: 0 0 20px;
+      padding: 16px;
+      border-radius: 18px;
+      background: var(--surface-strong);
+      border: 1px solid var(--line);
+    }
+
+    .assembly-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .metric-toggle {
+      display: flex;
+      gap: 6px;
+    }
+
+    .toggle-btn {
+      padding: 5px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: transparent;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .toggle-btn.active {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
+    }
+
+    .toggle-btn:hover:not(.active) {
+      background: var(--accent-soft);
+      border-color: var(--accent-soft);
+    }
+
     .gallery {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -423,6 +487,98 @@
       `;
     }
 
+    function progressCard(label, ratio, extraClass) {
+      const cls = extraClass ? ` ${extraClass}` : "";
+      const pct = ratio != null ? Math.min(ratio * 100, 100) : 0;
+      const tooltip = ratio != null ? `${percentFormatter.format(ratio * 100)}% of target` : "N/A";
+      return `
+        <div class="stat${cls}">
+          <span class="stat-label">${label}</span>
+          <div class="progress-track" title="${tooltip}">
+            <div class="progress-fill" style="width:${pct}%"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    const ASSEMBLY_DATA = {};
+
+    function buildAssemblySvg(assemblies, metric) {
+      const color = TREND_SERIES.find(s => s.key === metric)?.color ?? "#b45d3c";
+      const unit = METRIC_UNITS[metric] ?? "";
+      const entries = Object.entries(assemblies)
+        .map(([name, vals]) => ({ name, value: vals[metric] ?? 0 }))
+        .sort((a, b) => b.value - a.value);
+
+      const maxVal = entries[0]?.value ?? 1;
+      const rowH = 34;
+      const labelW = 130;
+      const barMaxW = 480;
+      const valW = 90;
+      const padT = 6;
+      const padB = 6;
+      const svgW = labelW + 10 + barMaxW + 8 + valW;
+      const svgH = padT + entries.length * rowH + padB;
+
+      const rows = entries.map((entry, i) => {
+        const y = padT + i * rowH;
+        const barW = maxVal > 0 ? (entry.value / maxVal) * barMaxW : 0;
+        const label = numberFormatter.format(Math.round(entry.value));
+        return `
+          <text x="${labelW}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="12" fill="#5f6c69">${entry.name}</text>
+          <rect x="${labelW + 10}" y="${y + 7}" width="${barW}" height="${rowH - 14}" rx="4" fill="${color}" opacity="0.82">
+            <title>${entry.name}: ${label} ${unit}</title>
+          </rect>
+          <text x="${labelW + 10 + barW + 7}" y="${y + rowH / 2 + 4}" font-size="11" fill="#5f6c69">${label}</text>
+        `;
+      }).join("");
+
+      return `
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width:100%;height:auto;display:block">
+          ${rows}
+        </svg>
+        <p style="margin:4px 0 0;font-size:0.78rem;color:#5f6c69;text-align:right">${unit}</p>
+      `;
+    }
+
+    function buildAssemblyChart(items, runId) {
+      if (!items || items.length === 0) return "";
+
+      const assemblies = {};
+      for (const item of items) {
+        const key = item.assembly || "Other";
+        if (!assemblies[key]) assemblies[key] = { carbon: 0, energy: 0, water: 0 };
+        assemblies[key].carbon += item.embodied_total?.carbon ?? 0;
+        assemblies[key].energy += item.embodied_total?.energy ?? 0;
+        assemblies[key].water  += item.embodied_total?.water  ?? 0;
+      }
+
+      const chartId = `assembly-chart-${runId}`;
+      ASSEMBLY_DATA[chartId] = assemblies;
+
+      return `
+        <section class="assembly-panel">
+          <div class="assembly-header">
+            <h3 class="history-title">Assembly Breakdown</h3>
+            <div class="metric-toggle">
+              <button class="toggle-btn active" onclick="switchAssemblyMetric('${chartId}', 'carbon', this)">Carbon</button>
+              <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'energy', this)">Energy</button>
+              <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'water', this)">Water</button>
+            </div>
+          </div>
+          <div id="${chartId}">${buildAssemblySvg(assemblies, "carbon")}</div>
+        </section>
+      `;
+    }
+
+    function switchAssemblyMetric(chartId, metric, btn) {
+      const assemblies = ASSEMBLY_DATA[chartId];
+      if (!assemblies) return;
+      document.getElementById(chartId).innerHTML = buildAssemblySvg(assemblies, metric);
+      btn.closest(".metric-toggle").querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+    }
+
     function formatSignedDelta(value) {
       if (value == null || Number.isNaN(value)) {
         return "N/A";
@@ -591,13 +747,14 @@
             <span class="tag">${lifetime}</span>
           </div>
           <div class="stats">
-            ${metricCard("Carbon vs target", formatPercent(carbon.percent_of_target), null, percentClass(carbon.percent_of_target))}
-            ${metricCard("Energy vs target", formatPercent(energy.percent_of_target), null, percentClass(energy.percent_of_target))}
-            ${metricCard("Water vs target", formatPercent(water.percent_of_target), null, percentClass(water.percent_of_target))}
+            ${progressCard("Carbon vs target", carbon.percent_of_target, percentClass(carbon.percent_of_target))}
+            ${progressCard("Energy vs target", energy.percent_of_target, percentClass(energy.percent_of_target))}
+            ${progressCard("Water vs target", water.percent_of_target, percentClass(water.percent_of_target))}
             ${metricCard("Project carbon", formatMetric(carbon.project), METRIC_UNITS.carbon)}
             ${metricCard("Project energy", formatMetric(energy.project), METRIC_UNITS.energy)}
             ${metricCard("Project water", formatMetric(water.project), METRIC_UNITS.water)}
           </div>
+          ${buildAssemblyChart(results.construction_items, run.id)}
           ${buildHistoryPanel(history)}
           <div class="gallery">
             ${buildPlots(run)}
