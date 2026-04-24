@@ -473,6 +473,90 @@
 
     .chart-modal-body canvas { max-width: 100%; }
 
+    /* ── Hero scorecard ─────────────────────────────── */
+    .hero-scorecard {
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .hero-metric-label {
+      margin: 0 0 4px;
+      font-size: .7rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--muted);
+    }
+
+    .hero-metric-value {
+      font-size: 2.2rem;
+      font-weight: 700;
+      line-height: 1;
+      letter-spacing: -.03em;
+    }
+
+    .hero-metric-value.good { color: #3a9e6a; }
+    .hero-metric-value.warn { color: #c9970a; }
+    .hero-metric-value.over { color: #c0522a; }
+
+    .hero-metric-sub {
+      margin: 4px 0 0;
+      font-size: .75rem;
+      color: var(--muted);
+    }
+
+    /* ── Tab bar ────────────────────────────────────── */
+    .tab-bar {
+      display: flex;
+      margin-top: 18px;
+      border-bottom: 2px solid var(--line);
+      overflow-x: auto;
+      scrollbar-width: none;
+      gap: 0;
+    }
+
+    .tab-bar::-webkit-scrollbar { display: none; }
+
+    .tab-btn {
+      padding: 10px 18px;
+      border: none;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      background: none;
+      color: var(--muted);
+      font-family: inherit;
+      font-size: .82rem;
+      font-weight: 600;
+      letter-spacing: .02em;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color .15s, border-color .15s;
+    }
+
+    .tab-btn:hover:not(.active) { color: var(--ink); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Tab panels ─────────────────────────────────── */
+    .run-panels { margin-top: 16px; }
+    .tab-panel[hidden] { display: none; }
+
+    /* ── Last-updated badge ─────────────────────────── */
+    .tag-muted {
+      display: inline-flex;
+      align-items: center;
+      white-space: nowrap;
+      padding: 4px 10px;
+      border-radius: 6px;
+      background: var(--surface-alt);
+      color: var(--muted);
+      font-size: .72rem;
+      font-weight: 500;
+      letter-spacing: .01em;
+    }
+
     /* ── Responsive ─────────────────────────────────── */
     @media (max-width: 720px) {
       .site-header       { padding: 14px 18px; }
@@ -494,9 +578,12 @@
   <main class="shell">
     <section class="hero">
       <p>Sustainability Tracking Value — live results from Revit takeoff exports, updated on every STV run.</p>
+      <div id="hero-scorecard" class="hero-scorecard" hidden></div>
     </section>
 
-    <section id="run-list" class="run-list" aria-label="STV runs"></section>
+    <nav id="tab-bar" class="tab-bar" hidden aria-label="STV runs"></nav>
+    <div id="run-panels" class="run-panels"></div>
+
     <section id="empty-state" class="empty-state">
       No STV result folders were found. Generate results into <code>outputs/stv_*/</code> and refresh this page.
     </section>
@@ -532,7 +619,60 @@
     const CHART_MUTED   = "#6B6B6B";
     const CHART_GRID    = "rgba(0,0,0,0.07)";
 
-    const CHART_REGISTRY = {};
+    const CHART_REGISTRY   = {};
+    const CHART_INSTANCES  = {};
+    const INITIALIZED_TABS = new Set();
+    let   _activeTab       = null;
+
+    function switchTab(runId) {
+      document.querySelectorAll(".tab-panel").forEach(p => {
+        if (p.dataset.tab === runId) p.removeAttribute("hidden");
+        else p.setAttribute("hidden", "");
+      });
+      document.querySelectorAll(".tab-btn").forEach(b =>
+        b.classList.toggle("active", b.dataset.tab === runId)
+      );
+      _activeTab = runId;
+
+      const prefix = `chart-${runId}-`;
+      if (!INITIALIZED_TABS.has(runId)) {
+        INITIALIZED_TABS.add(runId);
+        for (const [id, cfg] of Object.entries(CHART_REGISTRY)) {
+          if (!id.startsWith(prefix)) continue;
+          const canvas = document.getElementById(id);
+          if (canvas) CHART_INSTANCES[id] = new Chart(canvas, { type: cfg.type, data: cfg.data, options: cfg.options });
+        }
+      } else {
+        requestAnimationFrame(() => {
+          for (const [id, chart] of Object.entries(CHART_INSTANCES)) {
+            if (id.startsWith(prefix)) chart.resize();
+          }
+        });
+      }
+    }
+
+    function buildHeroScorecard(results) {
+      const summary = results.metric_summary || {};
+      const defs = [
+        { key: "carbon", label: "Carbon", unit: "kgCO₂e" },
+        { key: "energy", label: "Energy", unit: "kWh"    },
+        { key: "water",  label: "Water",  unit: "L"      }
+      ];
+      return defs.map(({ key, label, unit }) => {
+        const pct     = summary[key]?.percent_of_target;
+        const project = summary[key]?.project;
+        if (pct == null) return "";
+        const cls    = pct <= 0.80 ? "good" : pct <= 1.00 ? "warn" : "over";
+        const pctStr = percentFormatter.format(pct * 100) + "%";
+        const absStr = numberFormatter.format(Math.round(project));
+        return `
+          <div class="hero-metric">
+            <p class="hero-metric-label">${label}</p>
+            <div class="hero-metric-value ${cls}">${pctStr}</div>
+            <p class="hero-metric-sub">${absStr} ${unit} of target</p>
+          </div>`;
+      }).join("");
+    }
 
     function fmtAxis(v) {
       const abs = Math.abs(v);
@@ -547,7 +687,6 @@
 
     const CHART_CONFIGS = [];
 
-    const runList = document.getElementById("run-list");
     const emptyState = document.getElementById("empty-state");
 
     const numberFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
@@ -960,21 +1099,28 @@
     }
 
     function buildRunCard(run, results, history) {
-      const summary = results.metric_summary || {};
-      const carbon = summary.carbon || {};
-      const energy = summary.energy || {};
-      const water = summary.water || {};
-      const lifetime = results.lifetime_years != null ? `${results.lifetime_years} years` : "Lifetime not set";
-      const team = results.team || "Unknown team";
+      const summary  = results.metric_summary || {};
+      const carbon   = summary.carbon || {};
+      const energy   = summary.energy || {};
+      const water    = summary.water  || {};
+      const lifetime = results.lifetime_years != null ? `${results.lifetime_years} yr` : "—";
+      const team     = results.team || "Unknown team";
+
+      const lastTs      = history?.length > 0 ? history[history.length - 1].timestamp : null;
+      const lastUpdated = lastTs ? dateFormatter.format(new Date(lastTs)) : null;
 
       return `
+        <div class="tab-panel" data-tab="${run.id}">
         <article class="run-card">
           <div class="run-header">
             <div>
               <h2 class="run-title">${run.title}</h2>
-              <p class="run-subtitle">${run.subtitle} for team ${team}.</p>
+              <p class="run-subtitle">${run.subtitle} — ${team}</p>
             </div>
-            <span class="tag">${lifetime}</span>
+            <div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px">
+              <span class="tag">${lifetime}</span>
+              ${lastUpdated ? `<span class="tag-muted">Updated ${lastUpdated}</span>` : ""}
+            </div>
           </div>
           <div class="stats">
             ${progressCard("Carbon vs target", carbon.percent_of_target, percentClass(carbon.percent_of_target))}
@@ -988,6 +1134,7 @@
           ${buildHistoryPanel(history)}
           ${buildInteractiveCharts(run, results)}
         </article>
+        </div>
       `;
     }
 
@@ -1037,29 +1184,43 @@
     }
 
     async function render() {
-      const cards = [];
+      const loaded = [];
 
       for (const run of RUNS) {
         try {
           const [results, history] = await Promise.all([loadRun(run), loadHistory(run)]);
-          cards.push(buildRunCard(run, results, history));
+          loaded.push({ run, results, history });
         } catch (error) {
           console.warn(error);
         }
       }
 
-      if (cards.length === 0) {
+      if (loaded.length === 0) {
         emptyState.style.display = "block";
         return;
       }
 
-      runList.innerHTML = cards.join("");
+      // Hero scorecard — use project STV if available, else first loaded
+      const projectEntry = loaded.find(e => e.run.id === "stv_project") ?? loaded[0];
+      const heroEl = document.getElementById("hero-scorecard");
+      heroEl.innerHTML = buildHeroScorecard(projectEntry.results);
+      heroEl.removeAttribute("hidden");
 
-      for (const cfg of CHART_CONFIGS) {
-        const canvas = document.getElementById(cfg.id);
-        if (canvas) new Chart(canvas, { type: cfg.type, data: cfg.data, options: cfg.options });
-      }
-      CHART_CONFIGS.length = 0;
+      // Build all tab panels (populates CHART_REGISTRY as side-effect)
+      document.getElementById("run-panels").innerHTML = loaded
+        .map(({ run, results, history }) => buildRunCard(run, results, history))
+        .join("");
+      CHART_CONFIGS.length = 0; // configs are in CHART_REGISTRY; CHART_CONFIGS not needed further
+
+      // Tab bar
+      const tabBar = document.getElementById("tab-bar");
+      tabBar.innerHTML = loaded
+        .map(({ run }) => `<button class="tab-btn" data-tab="${run.id}" onclick="switchTab('${run.id}')">${run.title}</button>`)
+        .join("");
+      tabBar.removeAttribute("hidden");
+
+      // Activate first tab (lazy-inits its charts)
+      switchTab(loaded[0].run.id);
     }
 
     render();
