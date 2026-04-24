@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>STV Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <style>
     :root {
       --bg: #f4efe7;
@@ -352,13 +353,8 @@
       background: #fff;
     }
 
-    img {
-      display: block;
-      width: 100%;
-      height: auto;
-      aspect-ratio: 16 / 10;
-      object-fit: cover;
-      background: linear-gradient(135deg, #f6efe6, #ece4d8);
+    .chart-wrap {
+      padding: 16px 16px 8px;
     }
 
     figcaption {
@@ -425,11 +421,26 @@
       { id: "stv_example", title: "Example STV", subtitle: "Reference example generated from bundled inputs" }
     ];
 
-    const IMAGE_CAPTIONS = [
-      { file: "target_vs_project.png", caption: "Target vs project impacts" },
-      { file: "life_cycle_breakdown.png", caption: "Life-cycle impact breakdown" },
-      { file: "target_vs_project_radial.png", caption: "Target vs project percentages" }
-    ];
+    const CHART_METRICS = ["carbon", "energy", "water"];
+    const CHART_LABELS  = ["Carbon", "Energy", "Water"];
+    const CHART_UNITS   = ["kgCO₂e", "kWh", "L"];
+    const CHART_FONT    = "Georgia, serif";
+    const CHART_INK     = "#1f2a2e";
+    const CHART_MUTED   = "#5f6c69";
+    const CHART_GRID    = "rgba(31,42,46,0.08)";
+
+    function fmtAxis(v) {
+      const abs = Math.abs(v);
+      if (abs >= 1e6) return (v / 1e6).toFixed(1) + "M";
+      if (abs >= 1e3) return (v / 1e3).toFixed(0) + "K";
+      return String(Math.round(v));
+    }
+
+    function fmtTip(raw, metricIndex) {
+      return `${numberFormatter.format(Math.round(raw))} ${CHART_UNITS[metricIndex] ?? ""}`;
+    }
+
+    const CHART_CONFIGS = [];
 
     const runList = document.getElementById("run-list");
     const emptyState = document.getElementById("empty-state");
@@ -716,17 +727,119 @@
       `;
     }
 
-    function buildPlots(run) {
-      return IMAGE_CAPTIONS.map((image) => `
-        <figure>
-          <img
-            src="outputs/${run.id}/${image.file}"
-            alt="${run.title} - ${image.caption}"
-            loading="lazy"
-          >
-          <figcaption>${image.caption}</figcaption>
-        </figure>
-      `).join("");
+    function buildInteractiveCharts(run, results) {
+      const summary = results.metric_summary || {};
+      const bd      = results.breakdown     || {};
+      const team    = results.team          || "";
+      const runId   = run.id;
+
+      const axisX = { grid: { color: CHART_GRID }, ticks: { color: CHART_MUTED, font: { family: CHART_FONT, size: 11 } } };
+      const axisY = { grid: { color: CHART_GRID }, ticks: { color: CHART_MUTED, font: { family: CHART_FONT, size: 11 }, callback: fmtAxis } };
+      const legend = { labels: { color: CHART_INK, font: { family: CHART_FONT, size: 12 }, padding: 16 } };
+      const anim   = { duration: 700, easing: "easeOutQuart" };
+
+      // --- Chart 1: Target vs Project grouped bar ---
+      const tvpId = `chart-${runId}-tvp`;
+      CHART_CONFIGS.push({
+        id: tvpId, type: "bar",
+        data: {
+          labels: CHART_LABELS,
+          datasets: [
+            { label: "Target",  data: CHART_METRICS.map(k => summary[k]?.target  ?? 0), backgroundColor: "rgba(122,143,166,0.65)", borderColor: "#7a8fa6", borderWidth: 1, borderRadius: 5, borderSkipped: false },
+            { label: "Project", data: CHART_METRICS.map(k => summary[k]?.project ?? 0), backgroundColor: "rgba(217,144,88,0.75)",  borderColor: "#d99058", borderWidth: 1, borderRadius: 5, borderSkipped: false }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: true, aspectRatio: 1.75, animation: anim,
+          scales: { x: axisX, y: axisY },
+          plugins: {
+            legend,
+            title: { display: true, text: `STV Performance vs Target — ${team}`, color: CHART_INK, font: { family: CHART_FONT, size: 13, weight: "normal" }, padding: { bottom: 14 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtTip(ctx.raw, ctx.dataIndex)}` } }
+          }
+        }
+      });
+
+      // --- Chart 2: Life cycle stacked bar ---
+      const bdSegs = [
+        { key: "embodied_materials",    label: "Materials",    color: "#5b8e7d" },
+        { key: "embodied_transport",    label: "Transport",    color: "#8aa05d" },
+        { key: "embodied_construction", label: "Construction", color: "#d2a24c" },
+        { key: "use_electricity",       label: "Electricity",  color: "#cc6b49" },
+        { key: "use_heating",           label: "Heating",      color: "#8f5f99" },
+        { key: "use_water",             label: "Water Use",    color: "#5d7ea8" }
+      ];
+      const bdId = `chart-${runId}-bd`;
+      CHART_CONFIGS.push({
+        id: bdId, type: "bar",
+        data: {
+          labels: CHART_LABELS,
+          datasets: bdSegs.map(seg => ({
+            label: seg.label,
+            data:  CHART_METRICS.map(k => bd[seg.key]?.[k] ?? 0),
+            backgroundColor: seg.color + "cc",
+            borderColor: seg.color,
+            borderWidth: 1,
+            stack: "stk"
+          }))
+        },
+        options: {
+          responsive: true, maintainAspectRatio: true, aspectRatio: 1.75, animation: anim,
+          scales: {
+            x: { ...axisX, stacked: true },
+            y: { ...axisY, stacked: true }
+          },
+          plugins: {
+            legend,
+            title: { display: true, text: `Life Cycle Impact Breakdown — ${team}`, color: CHART_INK, font: { family: CHART_FONT, size: 13, weight: "normal" }, padding: { bottom: 14 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmtTip(ctx.raw, ctx.dataIndex)}` } }
+          }
+        }
+      });
+
+      // --- Chart 3: Radar (target vs project %) ---
+      const radarId = `chart-${runId}-radar`;
+      const projectPcts = CHART_METRICS.map(k => Math.min((summary[k]?.percent_of_target ?? 0) * 100, 200));
+      CHART_CONFIGS.push({
+        id: radarId, type: "radar",
+        data: {
+          labels: CHART_LABELS,
+          datasets: [
+            { label: "Target (100%)", data: [100, 100, 100], borderColor: "#7a8fa6", backgroundColor: "rgba(122,143,166,0.12)", borderWidth: 2, pointRadius: 4, pointBackgroundColor: "#7a8fa6" },
+            { label: "Project",       data: projectPcts,     borderColor: "#d99058", backgroundColor: "rgba(217,144,88,0.25)",  borderWidth: 2, pointRadius: 5, pointBackgroundColor: "#d99058" }
+          ]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: true, aspectRatio: 1, animation: anim,
+          scales: {
+            r: {
+              min: 0, max: 200,
+              ticks: { stepSize: 50, callback: v => v + "%", color: CHART_MUTED, font: { family: CHART_FONT, size: 10 }, backdropColor: "transparent" },
+              grid:        { color: CHART_GRID },
+              angleLines:  { color: CHART_GRID },
+              pointLabels: { color: CHART_INK,  font: { family: CHART_FONT, size: 13 } }
+            }
+          },
+          plugins: {
+            legend,
+            title: { display: true, text: `Target vs Project Percentage — ${team}`, color: CHART_INK, font: { family: CHART_FONT, size: 13, weight: "normal" }, padding: { bottom: 14 } },
+            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.raw.toFixed(1)}%` } }
+          }
+        }
+      });
+
+      const captions = ["Target vs project impacts", "Life-cycle impact breakdown", "Target vs project percentages"];
+      const ids       = [tvpId, bdId, radarId];
+      return `
+        <div class="gallery">
+          ${ids.map((id, i) => `
+            <figure>
+              <div class="chart-wrap"><canvas id="${id}"></canvas></div>
+              <figcaption>${captions[i]}</figcaption>
+            </figure>
+          `).join("")}
+        </div>
+      `;
     }
 
     function buildRunCard(run, results, history) {
@@ -756,9 +869,7 @@
           </div>
           ${buildAssemblyChart(results.construction_items, run.id)}
           ${buildHistoryPanel(history)}
-          <div class="gallery">
-            ${buildPlots(run)}
-          </div>
+          ${buildInteractiveCharts(run, results)}
         </article>
       `;
     }
@@ -797,6 +908,12 @@
       }
 
       runList.innerHTML = cards.join("");
+
+      for (const cfg of CHART_CONFIGS) {
+        const canvas = document.getElementById(cfg.id);
+        if (canvas) new Chart(canvas, { type: cfg.type, data: cfg.data, options: cfg.options });
+      }
+      CHART_CONFIGS.length = 0;
     }
 
     render();
