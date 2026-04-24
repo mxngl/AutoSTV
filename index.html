@@ -557,6 +557,89 @@
       letter-spacing: .01em;
     }
 
+    /* ── Theme toggle button ────────────────────────── */
+    .theme-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: none;
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 20px;
+      padding: 5px 12px 5px 9px;
+      color: rgba(255,255,255,.65);
+      cursor: pointer;
+      font-family: inherit;
+      font-size: .75rem;
+      font-weight: 600;
+      letter-spacing: .02em;
+      transition: border-color .2s, color .2s;
+      flex-shrink: 0;
+    }
+
+    .theme-toggle:hover { border-color: rgba(255,255,255,.5); color: #fff; }
+
+    .theme-track {
+      width: 28px;
+      height: 16px;
+      border-radius: 8px;
+      background: rgba(255,255,255,.22);
+      position: relative;
+      flex-shrink: 0;
+      transition: background .25s;
+    }
+
+    .theme-thumb {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: rgba(255,255,255,.80);
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+      transition: transform .25s, background .25s;
+    }
+
+    body.dark .theme-track                     { background: var(--accent); }
+    body.dark .theme-thumb                     { transform: translateX(12px); background: #fff; }
+
+    /* ── Dark mode variables ────────────────────────── */
+    body.dark {
+      --bg:           #1a1a1c;
+      --surface:      #2a2a2e;
+      --surface-alt:  #35353a;
+      --surface-hover:#333338;
+      --ink:          #e4e4e4;
+      --muted:        #9a9a9a;
+      --dim:          #585858;
+      --line:         #3c3c42;
+      --accent:       #D4783A;
+      --accent-soft:  rgba(212,120,58,0.20);
+      --header-bg:    #111113;
+      --header-text:  #e4e4e4;
+      --shadow:       0 1px 4px rgba(0,0,0,.30);
+      --shadow-hover: 0 6px 16px rgba(0,0,0,.45);
+    }
+
+    /* ── Dark mode component overrides ─────────────── */
+
+    /* Semantic stat backgrounds */
+    body.dark .stat-good { background: #162519; border-color: #2a5c35; }
+    body.dark .stat-warn { background: #221c0e; border-color: #5a4412; }
+    body.dark .stat-over { background: #22140f; border-color: #5c2a1a; }
+
+    /* Charts keep a light surface so axis labels stay readable */
+    body.dark figure      { background: #f8f6f3; }
+    body.dark .chart-wrap { background: #f8f6f3; }
+
+    /* Assembly + trend SVG text — CSS overrides SVG presentation attributes */
+    body.dark .assembly-panel svg text { fill: var(--muted); }
+    body.dark .trend-chart      text   { fill: var(--muted); }
+    body.dark .trend-chart      line   { stroke: rgba(255,255,255,0.10); }
+
+    /* Delta card positive is accent in light mode; keep in dark */
+    body.dark .delta-positive { color: var(--accent); }
+
     /* ── Responsive ─────────────────────────────────── */
     @media (max-width: 720px) {
       .site-header       { padding: 14px 18px; }
@@ -573,6 +656,10 @@
       <p class="eyebrow">Island Team 2026</p>
       <h1>STV Dashboard</h1>
     </div>
+    <button class="theme-toggle" onclick="toggleDark()" title="Toggle dark mode" aria-label="Toggle dark mode">
+      <span class="theme-track"><span class="theme-thumb"></span></span>
+      <span id="theme-label">Dark</span>
+    </button>
   </header>
 
   <main class="shell">
@@ -603,11 +690,13 @@
   </div>
 
   <script>
+    if (localStorage.getItem("stv-theme") === "dark") document.body.classList.add("dark");
+
     const RUNS = [
       { id: "stv_project", title: "Project STV", subtitle: "Combined project-level result across individual STV runs" },
-      { id: "stv_architecture", title: "Architecture STV", subtitle: "Derived from the Revit architecture takeoff" },
+      { id: "stv_architecture", title: "Architectural STV", subtitle: "Derived from the Revit architecture takeoff" },
       { id: "stv_structural", title: "Structural STV", subtitle: "Derived from the Revit structural schedule" },
-      { id: "stv_mep", title: "MEP STV", subtitle: "Derived from the Revit MEP takeoff" },
+      { id: "stv_mep", title: "Mechanical STV", subtitle: "Derived from the Revit MEP takeoff" },
       { id: "stv_example", title: "Example STV", subtitle: "Reference example generated from bundled inputs" }
     ];
 
@@ -1136,6 +1225,13 @@
         </article>
         </div>
       `;
+    }
+
+    function toggleDark() {
+      document.body.classList.toggle("dark");
+      const isDark = document.body.classList.contains("dark");
+      localStorage.setItem("stv-theme", isDark ? "dark" : "light");
+      document.getElementById("theme-label").textContent = isDark ? "Light" : "Dark";
     }
 
     let _modalChart = null;
