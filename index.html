@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>STV Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     :root {
       --bg:           #EDE8E3;
@@ -87,6 +89,26 @@
       color: rgba(255,255,255,.45);
       white-space: nowrap;
     }
+
+    .pdf-export-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 13px;
+      border: 1.5px solid var(--accent);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--accent);
+      font-size: .73rem;
+      font-weight: 600;
+      letter-spacing: .04em;
+      cursor: pointer;
+      transition: background .15s, color .15s;
+      white-space: nowrap;
+    }
+    .pdf-export-btn:hover { background: var(--accent); color: #fff; }
+    .pdf-export-btn:active { opacity: .85; }
+    .pdf-export-btn svg { flex-shrink: 0; }
 
     /* ── Shell ──────────────────────────────────────── */
     .shell {
@@ -681,6 +703,16 @@
       <p class="site-header-sub">Island Team 2026</p>
     </div>
     <div class="header-right">
+      <button class="pdf-export-btn" onclick="generateExecutivePDF()" title="Export executive summary as PDF">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6z"/>
+          <polyline points="9 2 9 6 13 6"/>
+          <line x1="5.5" y1="9.5" x2="10.5" y2="9.5"/>
+          <line x1="5.5" y1="11.5" x2="8.5" y2="11.5"/>
+        </svg>
+        Export PDF
+      </button>
+      <div class="header-sep"></div>
       <span class="header-icon">☀</span>
       <button class="theme-toggle" onclick="toggleDark()" title="Toggle dark mode" aria-label="Toggle dark mode">
         <span class="theme-track"><span class="theme-thumb"></span></span>
@@ -720,6 +752,8 @@
 
   <script>
     if (localStorage.getItem("stv-theme") === "dark") document.body.classList.add("dark");
+
+    let _loadedData = [];
 
     const RUNS = [
       { id: "stv_project", title: "Project STV", subtitle: "Combined project-level result across individual STV runs" },
@@ -1292,6 +1326,253 @@
 
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeChartModal(); });
 
+    async function generateExecutivePDF() {
+      if (_loadedData.length === 0) {
+        alert("Dashboard data is still loading. Please try again in a moment.");
+        return;
+      }
+
+      const btn = document.querySelector(".pdf-export-btn");
+      const origText = btn.innerHTML;
+      btn.textContent = "Generating…";
+      btn.disabled = true;
+
+      try {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ unit: "mm", format: "a4" });
+        const W = 210, H = 297, ml = 18;
+        const cw = W - ml * 2; // 174mm
+
+        // Colors
+        const C_ACCENT  = [196, 102, 38];
+        const C_DARK    = [66,  66,  66];
+        const C_MUTED   = [107, 107, 107];
+        const C_BG      = [245, 241, 236];
+        const C_LINE    = [224, 219, 213];
+        const C_SURFACE = [252, 250, 248];
+        const C_GOOD    = [72, 155, 100];
+        const C_WARN    = [185, 145, 30];
+        const C_OVER    = [190, 70, 55];
+
+        const fmt  = v => new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(v));
+        const fmtP = v => v != null ? (v * 100).toFixed(1) + "%" : "N/A";
+        const statusColor = pct => pct == null ? C_MUTED : pct <= 0.80 ? C_GOOD : pct <= 1.00 ? C_WARN : C_OVER;
+        const now = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(new Date());
+
+        // ── QR Code ────────────────────────────────────────────
+        const dashUrl = window.location.href;
+        const qrCanvas = document.createElement("canvas");
+        await new Promise((resolve, reject) =>
+          QRCode.toCanvas(qrCanvas, dashUrl, { width: 200, margin: 1, color: { dark: "#424242", light: "#ffffff" } }, err => err ? reject(err) : resolve())
+        );
+        const qrDataUrl = qrCanvas.toDataURL("image/png");
+
+        // ── Header band ─────────────────────────────────────────
+        doc.setFillColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+        doc.rect(0, 0, W, 22, "F");
+        doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+        doc.rect(0, 22, W, 2, "F");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(18);
+        doc.setTextColor(255, 255, 255);
+        doc.text("STV Executive Summary", ml, 13);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(195, 188, 180);
+        doc.text(`Island Team 2026  ·  Generated ${now}`, ml, 19);
+
+        // ── Key Metrics ─────────────────────────────────────────
+        const projectEntry = _loadedData.find(e => e.run.id === "stv_project") ?? _loadedData[0];
+        const summary = projectEntry.results.metric_summary || {};
+        const metricDefs = [
+          { key: "carbon", label: "Carbon", unit: "kgCO2e" },
+          { key: "energy", label: "Energy", unit: "kWh"    },
+          { key: "water",  label: "Water",  unit: "L"      }
+        ];
+
+        let y = 28;
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+        doc.text("KEY PERFORMANCE METRICS", ml, y);
+        y += 5;
+
+        const boxW = 54, boxH = 24, boxGap = 6;
+        metricDefs.forEach(({ key, label, unit }, i) => {
+          const m = summary[key] || {};
+          const pct = m.percent_of_target;
+          const project = m.project;
+          const x = ml + i * (boxW + boxGap);
+          const sc = statusColor(pct);
+
+          doc.setFillColor(C_BG[0], C_BG[1], C_BG[2]);
+          doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
+          doc.setLineWidth(0.25);
+          doc.roundedRect(x, y, boxW, boxH, 2, 2, "FD");
+
+          doc.setFillColor(sc[0], sc[1], sc[2]);
+          doc.rect(x, y, boxW, 1.5, "F");
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+          doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+          doc.text(label.toUpperCase(), x + 4, y + 6.5);
+
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(17);
+          doc.setTextColor(sc[0], sc[1], sc[2]);
+          doc.text(fmtP(pct), x + 4, y + 16);
+
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+          doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+          if (project != null) doc.text(fmt(project) + " " + unit, x + 4, y + 20.5, { maxWidth: boxW - 6 });
+        });
+        y += boxH + 8;
+
+        // ── Run Performance Table ─────────────────────────────
+        doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
+        doc.setLineWidth(0.3);
+        doc.line(ml, y, ml + cw, y);
+        y += 5;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+        doc.text("SUSTAINABILITY PERFORMANCE BY SUBSYSTEM", ml, y);
+        y += 4;
+
+        const colX = [ml, ml + 62, ml + 96, ml + 128, ml + 152];
+        const colHeaders = ["Subsystem", "Carbon", "Energy", "Water", "Status"];
+        doc.setFillColor(C_BG[0], C_BG[1], C_BG[2]);
+        doc.rect(ml, y, cw, 7, "F");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(7.5);
+        doc.setTextColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+        colHeaders.forEach((h, i) => doc.text(h, colX[i] + 2, y + 4.5));
+        y += 7;
+
+        _loadedData.forEach(({ run, results }, rowIdx) => {
+          const s = results.metric_summary || {};
+          const cp = s.carbon?.percent_of_target;
+          const ep = s.energy?.percent_of_target;
+          const wp = s.water?.percent_of_target;
+
+          let overallLabel, overallColor;
+          if ([cp, ep, wp].every(v => v != null && v <= 0.80)) {
+            overallLabel = "On Track";   overallColor = C_GOOD;
+          } else if ([cp, ep, wp].some(v => v != null && v > 1.00)) {
+            overallLabel = "Over Target"; overallColor = C_OVER;
+          } else {
+            overallLabel = "Near Target"; overallColor = C_WARN;
+          }
+
+          if (rowIdx % 2 === 0) {
+            doc.setFillColor(C_SURFACE[0], C_SURFACE[1], C_SURFACE[2]);
+            doc.rect(ml, y, cw, 7, "F");
+          }
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7.5);
+          doc.setTextColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+          doc.text(run.title, colX[0] + 2, y + 4.5);
+
+          [cp, ep, wp].forEach((v, i) => {
+            const sc = statusColor(v);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(sc[0], sc[1], sc[2]);
+            doc.text(fmtP(v), colX[i + 1] + 2, y + 4.5);
+          });
+
+          doc.setTextColor(overallColor[0], overallColor[1], overallColor[2]);
+          doc.setFont("helvetica", "bold");
+          doc.text(overallLabel, colX[4] + 2, y + 4.5);
+          y += 7;
+        });
+        y += 6;
+
+        // ── Top Assemblies ───────────────────────────────────
+        const items = projectEntry.results.construction_items || [];
+        if (items.length > 0) {
+          doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
+          doc.line(ml, y, ml + cw, y);
+          y += 5;
+
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7.5);
+          doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+          doc.text("TOP ASSEMBLIES BY EMBODIED CARBON", ml, y);
+          y += 4;
+
+          const assemblies = {};
+          for (const item of items) {
+            const key = item.assembly || "Other";
+            if (!assemblies[key]) assemblies[key] = 0;
+            assemblies[key] += item.embodied_total?.carbon ?? 0;
+          }
+          const sorted = Object.entries(assemblies).sort((a, b) => b[1] - a[1]).slice(0, 6);
+          const maxVal = sorted[0]?.[1] ?? 1;
+          const barTrackW = 86;
+          const labelColW = 62;
+
+          sorted.forEach(([name, value], i) => {
+            const barW = (value / maxVal) * barTrackW;
+            if (i % 2 === 0) {
+              doc.setFillColor(C_SURFACE[0], C_SURFACE[1], C_SURFACE[2]);
+              doc.rect(ml, y, cw, 7, "F");
+            }
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7.5);
+            doc.setTextColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+            doc.text(name, ml + 2, y + 4.5, { maxWidth: labelColW - 4 });
+
+            doc.setFillColor(196, 120, 80);
+            doc.roundedRect(ml + labelColW, y + 1.8, Math.max(barW, 0.5), 3.4, 1, 1, "F");
+
+            doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+            doc.text(fmt(value) + " kgCO2e", ml + labelColW + barTrackW + 3, y + 4.5);
+            y += 7;
+          });
+          y += 4;
+        }
+
+        // ── QR Code + Footer ─────────────────────────────────
+        const footerY = H - 52;
+        doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
+        doc.setLineWidth(0.3);
+        doc.line(ml, footerY, ml + cw, footerY);
+
+        const qrSize = 34;
+        doc.addImage(qrDataUrl, "PNG", ml, footerY + 4, qrSize, qrSize);
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9);
+        doc.setTextColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+        doc.text("Scan to open live dashboard", ml + qrSize + 6, footerY + 12);
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+        const urlDisplay = dashUrl.length > 72 ? dashUrl.slice(0, 69) + "…" : dashUrl;
+        doc.text(urlDisplay, ml + qrSize + 6, footerY + 18, { maxWidth: cw - qrSize - 8 });
+
+        doc.setFontSize(7);
+        doc.text("Sustainability Tracking Value Dashboard  ·  Island Team 2026", ml, H - 8);
+        doc.text(`Generated ${now}`, ml + cw, H - 8, { align: "right" });
+
+        // ── Save ─────────────────────────────────────────────
+        const fileName = `STV_Executive_Summary_${new Date().toISOString().slice(0, 10)}.pdf`;
+        doc.save(fileName);
+      } catch (err) {
+        console.error("PDF generation failed:", err);
+        alert("PDF generation failed. See console for details.");
+      } finally {
+        btn.innerHTML = origText;
+        btn.disabled = false;
+      }
+    }
+
     async function loadRun(run) {
       const response = await fetch(`outputs/${run.id}/stv_results.json`, { cache: "no-store" });
       if (!response.ok) {
@@ -1324,6 +1605,7 @@
         emptyState.style.display = "block";
         return;
       }
+      _loadedData = loaded;
 
       // Hero scorecard — use project STV if available, else first loaded
       const projectEntry = loaded.find(e => e.run.id === "stv_project") ?? loaded[0];
