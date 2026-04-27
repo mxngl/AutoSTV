@@ -6,7 +6,6 @@
   <title>STV Dashboard</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     :root {
       --bg:           #EDE8E3;
@@ -1389,7 +1388,6 @@
       try {
         const jsPDFLib = window.jspdf?.jsPDF ?? window.jsPDF;
         if (!jsPDFLib) throw new Error("jsPDF library not loaded — check internet connection and refresh.");
-        if (typeof QRCode === "undefined") throw new Error("QRCode library not loaded — check internet connection and refresh.");
         const doc = new jsPDFLib({ unit: "mm", format: "a4" });
         const W = 210, H = 297, ml = 18;
         const cw = W - ml * 2; // 174mm
@@ -1409,14 +1407,6 @@
         const fmtP = v => v != null ? (v * 100).toFixed(1) + "%" : "N/A";
         const statusColor = pct => pct == null ? C_MUTED : pct <= 0.80 ? C_GOOD : pct <= 1.00 ? C_WARN : C_OVER;
         const now = new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(new Date());
-
-        // ── QR Code ────────────────────────────────────────────
-        const dashUrl = window.location.href;
-        const qrCanvas = document.createElement("canvas");
-        await new Promise((resolve, reject) =>
-          QRCode.toCanvas(qrCanvas, dashUrl, { width: 200, margin: 1, color: { dark: "#424242", light: "#ffffff" } }, err => err ? reject(err) : resolve())
-        );
-        const qrDataUrl = qrCanvas.toDataURL("image/png");
 
         // ── Header band ─────────────────────────────────────────
         doc.setFillColor(C_DARK[0], C_DARK[1], C_DARK[2]);
@@ -1629,24 +1619,10 @@
         }
 
         // ── QR Code + Footer ─────────────────────────────────
-        const footerY = H - 52;
+        const footerY = H - 18;
         doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
         doc.setLineWidth(0.3);
-        doc.line(ml, footerY, ml + cw, footerY);
-
-        const qrSize = 34;
-        doc.addImage(qrDataUrl, "PNG", ml, footerY + 4, qrSize, qrSize);
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(9);
-        doc.setTextColor(C_DARK[0], C_DARK[1], C_DARK[2]);
-        doc.text("Scan to open live dashboard", ml + qrSize + 6, footerY + 12);
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7);
-        doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
-        const urlDisplay = dashUrl.length > 72 ? dashUrl.slice(0, 69) + "…" : dashUrl;
-        doc.text(urlDisplay, ml + qrSize + 6, footerY + 18, { maxWidth: cw - qrSize - 8 });
+        doc.line(ml, footerY - 4, ml + cw, footerY - 4);
 
         doc.setFontSize(7);
         doc.text("Sustainability Tracking Value Dashboard  ·  Island Team 2026", ml, H - 8);
