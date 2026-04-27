@@ -1363,8 +1363,10 @@
       btn.disabled = true;
 
       try {
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ unit: "mm", format: "a4" });
+        const jsPDFLib = window.jspdf?.jsPDF ?? window.jsPDF;
+        if (!jsPDFLib) throw new Error("jsPDF library not loaded — check internet connection and refresh.");
+        if (typeof QRCode === "undefined") throw new Error("QRCode library not loaded — check internet connection and refresh.");
+        const doc = new jsPDFLib({ unit: "mm", format: "a4" });
         const W = 210, H = 297, ml = 18;
         const cw = W - ml * 2; // 174mm
 
@@ -1457,7 +1459,6 @@
 
           if (key === "carbon" && project != null) {
             const treeCount = formatTreeCount(project);
-            doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2], 0.08);
             doc.setFillColor(242, 232, 222);
             doc.roundedRect(x + 3, y + 24, boxW - 6, 5.5, 1, 1, "F");
             doc.setFont("helvetica", "normal");
@@ -1602,7 +1603,7 @@
         doc.save(fileName);
       } catch (err) {
         console.error("PDF generation failed:", err);
-        alert("PDF generation failed. See console for details.");
+        alert("PDF generation failed: " + err.message);
       } finally {
         btn.innerHTML = origText;
         btn.disabled = false;
