@@ -560,6 +560,16 @@
       color: var(--muted);
     }
 
+    .hero-metric-trees {
+      margin: 6px 0 0;
+      padding: 4px 8px;
+      border-radius: 5px;
+      background: rgba(196,102,38,.09);
+      font-size: .7rem;
+      color: var(--accent);
+      line-height: 1.4;
+    }
+
     /* ── Tab bar ────────────────────────────────────── */
     .tab-bar {
       display: flex;
@@ -803,6 +813,17 @@
       }
     }
 
+    // A mature tree absorbs ~21 kg CO₂/year → ~0.0575 kg/day
+    const TREE_KG_PER_DAY = 21 / 365;
+
+    function formatTreeCount(kg) {
+      const n = kg / TREE_KG_PER_DAY;
+      if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+      if (n >= 1e3) return (n / 1e3).toFixed(0) + "k";
+      return Math.round(n).toString();
+    }
+
     function buildHeroScorecard(results) {
       const summary = results.metric_summary || {};
       const defs = [
@@ -817,11 +838,15 @@
         const cls    = pct <= 0.80 ? "good" : pct <= 1.00 ? "warn" : "over";
         const pctStr = percentFormatter.format(pct * 100) + "%";
         const absStr = numberFormatter.format(Math.round(project));
+        const treeLine = key === "carbon" && project != null
+          ? `<p class="hero-metric-trees">&#x1F333; = what ${formatTreeCount(project)} trees absorb in a day</p>`
+          : "";
         return `
           <div class="hero-metric">
             <p class="hero-metric-label">${label}</p>
             <div class="hero-metric-value ${cls}">${pctStr}</div>
             <p class="hero-metric-sub">${absStr} ${unit} of target</p>
+            ${treeLine}
           </div>`;
       }).join("");
     }
@@ -1399,7 +1424,7 @@
         doc.text("KEY PERFORMANCE METRICS", ml, y);
         y += 5;
 
-        const boxW = 54, boxH = 24, boxGap = 6;
+        const boxW = 54, boxH = 32, boxGap = 6;
         metricDefs.forEach(({ key, label, unit }, i) => {
           const m = summary[key] || {};
           const pct = m.percent_of_target;
@@ -1428,7 +1453,18 @@
           doc.setFont("helvetica", "normal");
           doc.setFontSize(7);
           doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
-          if (project != null) doc.text(fmt(project) + " " + unit, x + 4, y + 20.5, { maxWidth: boxW - 6 });
+          if (project != null) doc.text(fmt(project) + " " + unit, x + 4, y + 21.5, { maxWidth: boxW - 6 });
+
+          if (key === "carbon" && project != null) {
+            const treeCount = formatTreeCount(project);
+            doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2], 0.08);
+            doc.setFillColor(242, 232, 222);
+            doc.roundedRect(x + 3, y + 24, boxW - 6, 5.5, 1, 1, "F");
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(6.2);
+            doc.setTextColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+            doc.text(`= ${treeCount} trees absorbing for 1 day`, x + 5, y + 27.8, { maxWidth: boxW - 8 });
+          }
         });
         y += boxH + 8;
 
