@@ -228,6 +228,17 @@
       margin-left: 3px;
     }
 
+    .stat-comparison {
+      display: block;
+      margin-top: 6px;
+      padding: 3px 7px;
+      border-radius: 4px;
+      background: rgba(196,102,38,.08);
+      font-size: .68rem;
+      color: var(--accent);
+      line-height: 1.45;
+    }
+
     /* ── Progress bar ───────────────────────────────── */
     .progress-track {
       height: 6px;
@@ -814,15 +825,22 @@
     }
 
     // A mature tree absorbs ~21 kg CO₂/year → ~0.0575 kg/day
-    const TREE_KG_PER_DAY = 21 / 365;
+    const TREE_KG_PER_DAY    = 21 / 365;
+    // Average US home consumes ~10,500 kWh/year
+    const HOME_KWH_PER_YEAR  = 10500;
+    // Olympic swimming pool holds 2,500,000 L
+    const POOL_LITERS        = 2_500_000;
 
-    function formatTreeCount(kg) {
-      const n = kg / TREE_KG_PER_DAY;
+    function fmtBig(n) {
       if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
       if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
-      if (n >= 1e3) return (n / 1e3).toFixed(0) + "k";
-      return Math.round(n).toString();
+      if (n >= 1e3) return (n / 1e3).toFixed(n >= 100e3 ? 0 : 1) + "k";
+      return n.toFixed(n < 10 ? 1 : 0);
     }
+
+    function formatTreeCount(kg)    { return fmtBig(kg / TREE_KG_PER_DAY); }
+    function formatHomeCount(kwh)   { return fmtBig(kwh / HOME_KWH_PER_YEAR); }
+    function formatPoolCount(liters){ return fmtBig(liters / POOL_LITERS); }
 
     function buildHeroScorecard(results) {
       const summary = results.metric_summary || {};
@@ -838,8 +856,12 @@
         const cls    = pct <= 0.80 ? "good" : pct <= 1.00 ? "warn" : "over";
         const pctStr = percentFormatter.format(pct * 100) + "%";
         const absStr = numberFormatter.format(Math.round(project));
-        const treeLine = key === "carbon" && project != null
-          ? `<p class="hero-metric-trees">&#x1F333; = what ${formatTreeCount(project)} trees absorb in a day</p>`
+        const comparison =
+          key === "carbon" && project != null ? `&#x1F333; = what ${formatTreeCount(project)} trees absorb in a day` :
+          key === "energy" && project != null ? `&#x1F3E0; = ${formatHomeCount(project)} avg. homes powered for a year` :
+          key === "water"  && project != null ? `&#x1F3CA; = ${formatPoolCount(project)} Olympic swimming pools` : null;
+        const treeLine = comparison
+          ? `<p class="hero-metric-trees">${comparison}</p>`
           : "";
         return `
           <div class="hero-metric">
@@ -908,13 +930,15 @@
       return "stat-over";
     }
 
-    function metricCard(label, value, unit, extraClass) {
+    function metricCard(label, value, unit, extraClass, comparison) {
       const cls = extraClass ? ` ${extraClass}` : "";
       const unitHtml = unit ? `<span class="stat-unit">${unit}</span>` : "";
+      const compHtml = comparison ? `<span class="stat-comparison">${comparison}</span>` : "";
       return `
         <div class="stat${cls}">
           <span class="stat-label">${label}</span>
           <span class="stat-value">${value}${unitHtml}</span>
+          ${compHtml}
         </div>
       `;
     }
@@ -1303,9 +1327,9 @@
             ${progressCard("Carbon vs target", carbon.percent_of_target, percentClass(carbon.percent_of_target))}
             ${progressCard("Energy vs target", energy.percent_of_target, percentClass(energy.percent_of_target))}
             ${progressCard("Water vs target", water.percent_of_target, percentClass(water.percent_of_target))}
-            ${metricCard("Project carbon", formatMetric(carbon.project), METRIC_UNITS.carbon)}
-            ${metricCard("Project energy", formatMetric(energy.project), METRIC_UNITS.energy)}
-            ${metricCard("Project water", formatMetric(water.project), METRIC_UNITS.water)}
+            ${metricCard("Project carbon", formatMetric(carbon.project), METRIC_UNITS.carbon, "", carbon.project != null ? `&#x1F333; ${formatTreeCount(carbon.project)} trees absorbing/day` : "")}
+            ${metricCard("Project energy", formatMetric(energy.project), METRIC_UNITS.energy, "", energy.project != null ? `&#x1F3E0; ${formatHomeCount(energy.project)} homes powered/year` : "")}
+            ${metricCard("Project water",  formatMetric(water.project),  METRIC_UNITS.water,  "", water.project  != null ? `&#x1F3CA; ${formatPoolCount(water.project)} Olympic pools` : "")}
           </div>
           ${buildAssemblyChart(results.construction_items, run.id)}
           ${buildHistoryPanel(history)}
@@ -1457,17 +1481,47 @@
           doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
           if (project != null) doc.text(fmt(project) + " " + unit, x + 4, y + 21.5, { maxWidth: boxW - 6 });
 
-          if (key === "carbon" && project != null) {
-            const treeCount = formatTreeCount(project);
-            doc.setFillColor(242, 232, 222);
-            doc.roundedRect(x + 3, y + 24, boxW - 6, 5.5, 1, 1, "F");
-            doc.setFont("helvetica", "normal");
-            doc.setFontSize(6.2);
-            doc.setTextColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
-            doc.text(`= ${treeCount} trees absorbing for 1 day`, x + 5, y + 27.8, { maxWidth: boxW - 8 });
+          if (project != null) {
+            let compText;
+            if (key === "carbon") compText = `= ${formatTreeCount(project)} trees absorbing for 1 day`;
+            if (key === "energy") compText = `= ${formatHomeCount(project)} avg. homes powered/year`;
+            if (key === "water")  compText = `= ${formatPoolCount(project)} Olympic swimming pools`;
+            if (compText) {
+              doc.setFillColor(242, 232, 222);
+              doc.roundedRect(x + 3, y + 24, boxW - 6, 5.5, 1, 1, "F");
+              doc.setFont("helvetica", "normal");
+              doc.setFontSize(6.2);
+              doc.setTextColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+              doc.text(compText, x + 5, y + 27.8, { maxWidth: boxW - 8 });
+            }
           }
         });
-        y += boxH + 8;
+        y += boxH + 5;
+
+        // ── Comparison context strip ──────────────────────────
+        const carbonVal  = summary.carbon?.project;
+        const energyVal  = summary.energy?.project;
+        const waterVal   = summary.water?.project;
+        const stripItems = [
+          carbonVal != null ? `Trees absorbing 1 day: ${formatTreeCount(carbonVal)}` : null,
+          energyVal != null ? `Homes powered 1 year: ${formatHomeCount(energyVal)}` : null,
+          waterVal  != null ? `Olympic pools: ${formatPoolCount(waterVal)}` : null
+        ].filter(Boolean);
+
+        if (stripItems.length) {
+          doc.setFillColor(242, 232, 222);
+          doc.roundedRect(ml, y, cw, 8, 2, 2, "F");
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(7);
+          doc.setTextColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+          const segW = cw / stripItems.length;
+          stripItems.forEach((txt, i) => {
+            doc.text(txt, ml + i * segW + segW / 2, y + 5, { align: "center", maxWidth: segW - 4 });
+          });
+          y += 8 + 6;
+        } else {
+          y += 8;
+        }
 
         // ── Run Performance Table ─────────────────────────────
         doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
