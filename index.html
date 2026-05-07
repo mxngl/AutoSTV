@@ -1618,15 +1618,116 @@
           y += 4;
         }
 
-        // ── QR Code + Footer ─────────────────────────────────
+        // ── Page 1 footer ────────────────────────────────────
         const footerY = H - 18;
         doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
         doc.setLineWidth(0.3);
         doc.line(ml, footerY - 4, ml + cw, footerY - 4);
 
         doc.setFontSize(7);
+        doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
         doc.text("Sustainability Tracking Value Dashboard  ·  Island Team 2026", ml, H - 8);
         doc.text(`Generated ${now}`, ml + cw, H - 8, { align: "right" });
+
+        // ── Page 2 — Charts ──────────────────────────────────
+        const chartRunId = projectEntry.run.id;
+        const pdfChartDefs = [
+          { id: `chart-${chartRunId}-tvp`,   canvasW: 800, canvasH: 430 },
+          { id: `chart-${chartRunId}-bd`,    canvasW: 800, canvasH: 430 },
+          { id: `chart-${chartRunId}-radar`, canvasW: 480, canvasH: 480 }
+        ];
+
+        const pdfChartImages = [];
+        const tmpDiv = document.createElement("div");
+        tmpDiv.style.cssText = "position:fixed;left:-9999px;top:0;width:800px;visibility:hidden";
+        document.body.appendChild(tmpDiv);
+
+        for (const def of pdfChartDefs) {
+          const cfg = CHART_REGISTRY[def.id];
+          if (!cfg) continue;
+          const cv = document.createElement("canvas");
+          cv.width  = def.canvasW;
+          cv.height = def.canvasH;
+          tmpDiv.appendChild(cv);
+          const tmpChart = new Chart(cv, {
+            type: cfg.type,
+            data: cfg.data,
+            options: { ...cfg.options, animation: false, responsive: false }
+          });
+          pdfChartImages.push({ imgData: cv.toDataURL("image/png"), caption: cfg.caption, aspect: def.canvasH / def.canvasW });
+          tmpChart.destroy();
+        }
+        document.body.removeChild(tmpDiv);
+
+        if (pdfChartImages.length > 0) {
+          doc.addPage();
+
+          doc.setFillColor(C_DARK[0], C_DARK[1], C_DARK[2]);
+          doc.rect(0, 0, W, 22, "F");
+          doc.setFillColor(C_ACCENT[0], C_ACCENT[1], C_ACCENT[2]);
+          doc.rect(0, 22, W, 2, "F");
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(18);
+          doc.setTextColor(255, 255, 255);
+          doc.text("STV Sustainability Charts", ml, 13);
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(8.5);
+          doc.setTextColor(195, 188, 180);
+          doc.text(`Island Team 2026  ·  Generated ${now}`, ml, 19);
+
+          let cy = 30;
+          doc.setFont("helvetica", "bold");
+          doc.setFontSize(7.5);
+          doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+          doc.text("PERFORMANCE CHARTS — " + projectEntry.run.title.toUpperCase(), ml, cy);
+          cy += 6;
+
+          const halfW = (cw - 6) / 2;  // ~84mm per chart
+
+          // Row 1: target-vs-project + life-cycle breakdown side by side
+          const img0 = pdfChartImages[0];
+          const img1 = pdfChartImages[1];
+          const row1H = img0 ? halfW * img0.aspect : 0;
+
+          if (img0) {
+            doc.addImage(img0.imgData, "PNG", ml, cy, halfW, row1H);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+            doc.text(img0.caption, ml + halfW / 2, cy + row1H + 4, { align: "center" });
+          }
+          if (img1) {
+            const h1 = halfW * img1.aspect;
+            doc.addImage(img1.imgData, "PNG", ml + halfW + 6, cy, halfW, h1);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+            doc.text(img1.caption, ml + halfW + 6 + halfW / 2, cy + h1 + 4, { align: "center" });
+          }
+          cy += row1H + 12;
+
+          // Row 2: radar chart centered
+          const img2 = pdfChartImages[2];
+          if (img2) {
+            const radarW = halfW;
+            const radarH = radarW * img2.aspect;
+            const rx = ml + (cw - radarW) / 2;
+            doc.addImage(img2.imgData, "PNG", rx, cy, radarW, radarH);
+            doc.setFont("helvetica", "normal");
+            doc.setFontSize(7);
+            doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+            doc.text(img2.caption, rx + radarW / 2, cy + radarH + 4, { align: "center" });
+          }
+
+          // Page 2 footer
+          doc.setDrawColor(C_LINE[0], C_LINE[1], C_LINE[2]);
+          doc.setLineWidth(0.3);
+          doc.line(ml, H - 22, ml + cw, H - 22);
+          doc.setFontSize(7);
+          doc.setTextColor(C_MUTED[0], C_MUTED[1], C_MUTED[2]);
+          doc.text("Sustainability Tracking Value Dashboard  ·  Island Team 2026", ml, H - 8);
+          doc.text(`Generated ${now}`, ml + cw, H - 8, { align: "right" });
+        }
 
         // ── Save ─────────────────────────────────────────────
         const fileName = `STV_Executive_Summary_${new Date().toISOString().slice(0, 10)}.pdf`;
