@@ -438,6 +438,58 @@
       border-color: var(--accent);
     }
 
+    .chart-download-btn {
+      position: absolute;
+      top: 10px;
+      right: 42px;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity .15s, background .15s, color .15s, border-color .15s;
+      line-height: 1;
+    }
+
+    figure:hover .chart-download-btn { opacity: 1; }
+
+    .chart-download-btn:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
+    .panel-download-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border-radius: 5px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+      flex-shrink: 0;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+
+    .panel-download-btn:hover {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+    }
+
     figcaption {
       padding: 9px 14px 11px;
       font-size: .8rem;
@@ -956,7 +1008,9 @@
       `;
     }
 
-    const ASSEMBLY_DATA = {};
+    const ASSEMBLY_DATA  = {};
+    const ASSEMBLY_METRIC = {};
+    const HISTORY_DATA   = {};
 
     function buildAssemblySvg(assemblies, metric) {
       const color = TREND_SERIES.find(s => s.key === metric)?.color ?? "#b45d3c";
@@ -1009,16 +1063,22 @@
       }
 
       const chartId = `assembly-chart-${runId}`;
-      ASSEMBLY_DATA[chartId] = assemblies;
+      ASSEMBLY_DATA[chartId]  = assemblies;
+      ASSEMBLY_METRIC[chartId] = "carbon";
+
+      const dlIcon = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="2" x2="8" y2="11"/><polyline points="4 7 8 11 12 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>`;
 
       return `
         <section class="assembly-panel">
           <div class="assembly-header">
             <h3 class="history-title">Assembly Breakdown</h3>
-            <div class="metric-toggle">
-              <button class="toggle-btn active" onclick="switchAssemblyMetric('${chartId}', 'carbon', this)">Carbon</button>
-              <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'energy', this)">Energy</button>
-              <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'water', this)">Water</button>
+            <div style="display:flex;align-items:center;gap:8px">
+              <div class="metric-toggle">
+                <button class="toggle-btn active" onclick="switchAssemblyMetric('${chartId}', 'carbon', this)">Carbon</button>
+                <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'energy', this)">Energy</button>
+                <button class="toggle-btn" onclick="switchAssemblyMetric('${chartId}', 'water', this)">Water</button>
+              </div>
+              <button class="panel-download-btn" onclick="downloadAssemblyAsJpg('${chartId}')" title="Download as JPG">${dlIcon}</button>
             </div>
           </div>
           <div id="${chartId}">${buildAssemblySvg(assemblies, "carbon")}</div>
@@ -1029,6 +1089,7 @@
     function switchAssemblyMetric(chartId, metric, btn) {
       const assemblies = ASSEMBLY_DATA[chartId];
       if (!assemblies) return;
+      ASSEMBLY_METRIC[chartId] = metric;
       document.getElementById(chartId).innerHTML = buildAssemblySvg(assemblies, metric);
       btn.closest(".metric-toggle").querySelectorAll(".toggle-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
@@ -1063,14 +1124,14 @@
       return value > 0 ? "delta-positive" : "delta-negative";
     }
 
-    function buildTrendSvg(history) {
+    function buildTrendSvg(history, showLabels = false) {
       if (!history || history.length < 2) {
         return `<p class="history-subtitle">Trend chart will appear after at least two recorded runs.</p>`;
       }
 
       const width = 840;
-      const height = 260;
-      const padding = { top: 20, right: 20, bottom: 34, left: 42 };
+      const height = showLabels ? 300 : 260;
+      const padding = { top: showLabels ? 48 : 20, right: 20, bottom: 34, left: 42 };
       const innerWidth = width - padding.left - padding.right;
       const innerHeight = height - padding.top - padding.bottom;
 
@@ -1099,12 +1160,23 @@
         return `<text x="${x}" y="${height - 10}" text-anchor="middle" font-size="11" fill="#5f6c69">${text}</text>`;
       }).join("");
 
-      const seriesMarkup = TREND_SERIES.map((series) => {
+      // Vertical offsets per series so labels don't overlap
+      const labelOffsets = [-14, 0, 14];
+      const seriesMarkup = TREND_SERIES.map((series, si) => {
         const values = history.map((entry) => (entry.metric_summary?.[series.key]?.percent_of_target ?? 0) * 100);
         const path = values.map((value, index) => `${index === 0 ? "M" : "L"} ${makeX(index)} ${makeY(value)}`).join(" ");
-        const dots = values.map((value, index) => `
-          <circle cx="${makeX(index)}" cy="${makeY(value)}" r="4" fill="${series.color}" />
-        `).join("");
+        const dots = values.map((value, index) => {
+          const cx = makeX(index);
+          const cy = makeY(value);
+          const dot = `<circle cx="${cx}" cy="${cy}" r="${showLabels ? 5 : 4}" fill="${series.color}" />`;
+          if (!showLabels) return dot;
+          const labelY = cy + labelOffsets[si] - 4;
+          const anchor = si === 0 ? "end" : si === 2 ? "start" : "middle";
+          const dx = si === 0 ? -8 : si === 2 ? 8 : 0;
+          return `${dot}
+            <rect x="${cx + dx - (anchor === "middle" ? 22 : 2)}" y="${labelY - 11}" width="44" height="14" rx="3" fill="white" fill-opacity="0.78"/>
+            <text x="${cx + dx}" y="${labelY}" text-anchor="${anchor}" font-size="10" font-weight="600" fill="${series.color}">${series.label[0]}: ${percentFormatter.format(value)}%</text>`;
+        }).join("");
         return `
           <path d="${path}" fill="none" stroke="${series.color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
           ${dots}
@@ -1113,6 +1185,7 @@
 
       return `
         <svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="STV trend over time">
+          ${showLabels ? `<rect width="${width}" height="${height}" fill="white"/>` : ""}
           ${grid}
           ${seriesMarkup}
           ${labels}
@@ -1128,7 +1201,7 @@
       `;
     }
 
-    function buildHistoryPanel(history) {
+    function buildHistoryPanel(history, runId = null) {
       if (!history || history.length === 0) {
         return "";
       }
@@ -1155,6 +1228,13 @@
         ? `Latest run ${dateFormatter.format(new Date(current.timestamp))}. Delta is versus ${dateFormatter.format(new Date(previous.timestamp))}.`
         : `Latest run ${dateFormatter.format(new Date(current.timestamp))}. Run again to see deltas over time.`;
 
+      if (runId) HISTORY_DATA[runId] = history;
+
+      const dlIcon = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="2" x2="8" y2="11"/><polyline points="4 7 8 11 12 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>`;
+      const dlBtn = history.length >= 2 && runId
+        ? `<button class="panel-download-btn" onclick="downloadTrendAsJpg('${runId}')" title="Download as JPG">${dlIcon}</button>`
+        : "";
+
       return `
         <section class="history-panel">
           <div class="history-header">
@@ -1162,6 +1242,7 @@
               <h3 class="history-title">Run History</h3>
               <p class="history-subtitle">${lastRunText}</p>
             </div>
+            ${dlBtn}
           </div>
           <div class="delta-grid">
             ${deltas}
@@ -1283,12 +1364,14 @@
 
       const chartIds = [tvpId, bdId, radarId];
       const cfgs     = [tvpCfg, bdCfg, radarCfg];
+      const dlIcon   = `<svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="2" x2="8" y2="11"/><polyline points="4 7 8 11 12 7"/><line x1="3" y1="14" x2="13" y2="14"/></svg>`;
       return `
         <div class="gallery">
           ${chartIds.map((id, i) => `
             <figure>
               <div class="chart-wrap">
                 <canvas id="${id}"></canvas>
+                <button class="chart-download-btn" onclick="downloadChartAsJpg('${id}')" title="Download as JPG">${dlIcon}</button>
                 <button class="chart-expand-btn" onclick="openChartModal('${id}')" title="Expand">⤢</button>
               </div>
               <figcaption>${cfgs[i].caption}</figcaption>
@@ -1331,7 +1414,7 @@
             ${metricCard("Project water",  formatMetric(water.project),  METRIC_UNITS.water,  "", water.project  != null ? `&#x1F3CA; ${formatPoolCount(water.project)} Olympic pools` : "")}
           </div>
           ${buildAssemblyChart(results.construction_items, run.id)}
-          ${buildHistoryPanel(history)}
+          ${buildHistoryPanel(history, run.id)}
           ${buildInteractiveCharts(run, results)}
         </article>
         </div>
@@ -1373,6 +1456,193 @@
     }
 
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeChartModal(); });
+
+    // ── Chart download helpers ──────────────────────────────────
+
+    function _triggerJpgDownload(canvas, filename) {
+      const link = document.createElement("a");
+      link.download = filename.replace(/[^a-z0-9_\-]/gi, "_") + ".jpg";
+      link.href = canvas.toDataURL("image/jpeg", 0.93);
+      link.click();
+    }
+
+    // Plugin that draws data labels on top of Chart.js bars/radar points.
+    function _makeDataLabelPlugin() {
+      return {
+        id: "stvDataLabels",
+        afterDatasetsDraw(chart) {
+          const ctx = chart.ctx;
+          const isStacked = !!chart.options.scales?.y?.stacked;
+          const isRadar   = chart.config.type === "radar";
+          ctx.save();
+
+          if (!isRadar) {
+            // Track topmost bar Y per column for stacked-total label
+            const colTopY  = {};
+            const colTotal = {};
+
+            chart.data.datasets.forEach((ds, dsi) => {
+              const meta = chart.getDatasetMeta(dsi);
+              if (meta.hidden) return;
+              meta.data.forEach((bar, di) => {
+                const val = ds.data[di];
+                if (!val || val === 0) return;
+                const unit  = CHART_UNITS[di] ?? "";
+                const label = numberFormatter.format(Math.round(val)) + (unit ? " " + unit : "");
+
+                if (isStacked) {
+                  const segH = Math.abs(bar.y - bar.base);
+                  if (segH >= 17) {
+                    ctx.font = "600 10px system-ui,sans-serif";
+                    ctx.textAlign = "center";
+                    ctx.textBaseline = "middle";
+                    ctx.fillStyle = "rgba(255,255,255,0.92)";
+                    ctx.fillText(label, bar.x, (bar.y + bar.base) / 2);
+                  }
+                  if (colTopY[di] == null || bar.y < colTopY[di]) colTopY[di] = bar.y;
+                  colTotal[di] = (colTotal[di] ?? 0) + val;
+                } else {
+                  ctx.font = "600 11px system-ui,sans-serif";
+                  ctx.textAlign = "center";
+                  ctx.textBaseline = "bottom";
+                  ctx.fillStyle = "#424242";
+                  ctx.fillText(label, bar.x, bar.y - 5);
+                }
+              });
+            });
+
+            // Stacked column totals
+            if (isStacked) {
+              Object.keys(colTotal).forEach(di => {
+                const unit  = CHART_UNITS[parseInt(di)] ?? "";
+                const label = "Σ " + numberFormatter.format(Math.round(colTotal[di])) + (unit ? " " + unit : "");
+                // get x from first visible dataset bar
+                let barX = null;
+                for (const [, meta] of Object.entries(chart.getDatasetMeta ? {} : {})) { break; }
+                for (let dsi = 0; dsi < chart.data.datasets.length; dsi++) {
+                  const m = chart.getDatasetMeta(dsi);
+                  if (!m.hidden && m.data[di]) { barX = m.data[di].x; break; }
+                }
+                if (barX == null) return;
+                ctx.font = "700 11px system-ui,sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "bottom";
+                ctx.fillStyle = "#424242";
+                ctx.fillText(label, barX, colTopY[di] - 5);
+              });
+            }
+
+          } else {
+            // Radar: value labels near each point, per dataset
+            const yOffsets = [-14, 10, -4];
+            chart.data.datasets.forEach((ds, dsi) => {
+              const meta = chart.getDatasetMeta(dsi);
+              if (meta.hidden) return;
+              meta.data.forEach((pt, di) => {
+                const val = ds.data[di];
+                if (val == null) return;
+                ctx.font = "700 11px system-ui,sans-serif";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillStyle = typeof ds.borderColor === "string" ? ds.borderColor : "#424242";
+                ctx.fillText(val.toFixed(1) + "%", pt.x, pt.y + (yOffsets[dsi] ?? 0));
+              });
+            });
+          }
+
+          ctx.restore();
+        }
+      };
+    }
+
+    function downloadChartAsJpg(chartId) {
+      const cfg = CHART_REGISTRY[chartId];
+      if (!cfg) return;
+
+      const isRadar = cfg.type === "radar";
+      const W = isRadar ? 640 : 1060;
+      const H = isRadar ? 640 : 620;
+
+      const cv = document.createElement("canvas");
+      cv.width  = W;
+      cv.height = H;
+      const bgCtx = cv.getContext("2d");
+      bgCtx.fillStyle = "#ffffff";
+      bgCtx.fillRect(0, 0, W, H);
+
+      const tmpDiv = document.createElement("div");
+      tmpDiv.style.cssText = "position:fixed;left:-9999px;top:0;width:" + W + "px;height:" + H + "px;visibility:hidden";
+      document.body.appendChild(tmpDiv);
+
+      const tmpChart = new Chart(cv, {
+        type: cfg.type,
+        data: cfg.data,
+        options: { ...cfg.options, animation: false, responsive: false },
+        plugins: [_makeDataLabelPlugin()]
+      });
+
+      _triggerJpgDownload(cv, cfg.caption);
+      tmpChart.destroy();
+      document.body.removeChild(tmpDiv);
+    }
+
+    function _svgToJpg(svgEl, filename) {
+      const vb = (svgEl.getAttribute("viewBox") || "0 0 840 300").split(/\s+/).map(Number);
+      const vbW = vb[2] || 840;
+      const vbH = vb[3] || 300;
+      const scale = Math.min(1400 / vbW, 900 / vbH, 3);
+      const cW = Math.round(vbW * scale);
+      const cH = Math.round(vbH * scale);
+
+      const clone = svgEl.cloneNode(true);
+      clone.setAttribute("width",  cW);
+      clone.setAttribute("height", cH);
+      // Ensure white background in clone
+      if (!clone.querySelector("rect[fill='white']")) {
+        const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        bg.setAttribute("width", "100%"); bg.setAttribute("height", "100%"); bg.setAttribute("fill", "white");
+        clone.insertBefore(bg, clone.firstChild);
+      }
+
+      const svgData = new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+      const url  = URL.createObjectURL(blob);
+      const img  = new Image();
+      img.onload = () => {
+        const cv = document.createElement("canvas");
+        cv.width = cW; cv.height = cH;
+        const ctx = cv.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, cW, cH);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        _triggerJpgDownload(cv, filename);
+      };
+      img.onerror = () => URL.revokeObjectURL(url);
+      img.src = url;
+    }
+
+    function downloadAssemblyAsJpg(chartId) {
+      const container = document.getElementById(chartId);
+      const svgEl = container?.querySelector("svg");
+      if (!svgEl) return;
+      const metric  = ASSEMBLY_METRIC[chartId] || "carbon";
+      const metricLabel = { carbon: "Carbon", energy: "Energy", water: "Water" }[metric] || metric;
+      _svgToJpg(svgEl, "Assembly_Breakdown_" + metricLabel);
+    }
+
+    function downloadTrendAsJpg(runId) {
+      const history = HISTORY_DATA[runId];
+      if (!history || history.length < 2) return;
+
+      // Build labeled version of the trend SVG
+      const html = buildTrendSvg(history, true);
+      const parser = new DOMParser();
+      const doc2   = parser.parseFromString(html.match(/<svg[\s\S]*?<\/svg>/)?.[0] || "<svg/>", "image/svg+xml");
+      const svgEl  = doc2.documentElement;
+      if (!svgEl || svgEl.nodeName !== "svg") return;
+      _svgToJpg(svgEl, "STV_Run_History_" + runId);
+    }
 
     async function generateExecutivePDF() {
       if (_loadedData.length === 0) {
