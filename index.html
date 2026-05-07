@@ -1022,8 +1022,8 @@
       const maxVal = entries[0]?.value ?? 1;
       const rowH = 34;
       const labelW = 130;
-      const barMaxW = 480;
-      const valW = 90;
+      const barMaxW = 460;
+      const valW = 120;
       const padT = 6;
       const padB = 6;
       const svgW = labelW + 10 + barMaxW + 8 + valW;
@@ -1032,11 +1032,11 @@
       const rows = entries.map((entry, i) => {
         const y = padT + i * rowH;
         const barW = maxVal > 0 ? (entry.value / maxVal) * barMaxW : 0;
-        const label = numberFormatter.format(Math.round(entry.value));
+        const label = numberFormatter.format(Math.round(entry.value)) + (unit ? " " + unit : "");
         return `
           <text x="${labelW}" y="${y + rowH / 2 + 4}" text-anchor="end" font-size="12" fill="#5f6c69">${entry.name}</text>
           <rect x="${labelW + 10}" y="${y + 7}" width="${barW}" height="${rowH - 14}" rx="4" fill="${color}" opacity="0.82">
-            <title>${entry.name}: ${label} ${unit}</title>
+            <title>${entry.name}: ${label}</title>
           </rect>
           <text x="${labelW + 10 + barW + 7}" y="${y + rowH / 2 + 4}" font-size="11" fill="#5f6c69">${label}</text>
         `;
@@ -1560,30 +1560,71 @@
       if (!cfg) return;
 
       const isRadar = cfg.type === "radar";
-      const W = isRadar ? 640 : 1060;
-      const H = isRadar ? 640 : 620;
+      const W = isRadar ? 680 : 1060;
+      const H = isRadar ? 680 : 640;
 
       const cv = document.createElement("canvas");
       cv.width  = W;
       cv.height = H;
-      const bgCtx = cv.getContext("2d");
-      bgCtx.fillStyle = "#ffffff";
-      bgCtx.fillRect(0, 0, W, H);
 
-      const tmpDiv = document.createElement("div");
-      tmpDiv.style.cssText = "position:fixed;left:-9999px;top:0;width:" + W + "px;height:" + H + "px;visibility:hidden";
-      document.body.appendChild(tmpDiv);
+      // Chart.js clears the canvas before drawing, so white background must be
+      // applied inside beforeDraw (which runs after clearRect).
+      const bgPlugin = {
+        id: "stvWhiteBg",
+        beforeDraw(chart) {
+          chart.ctx.fillStyle = "#ffffff";
+          chart.ctx.fillRect(0, 0, chart.width, chart.height);
+        }
+      };
+
+      // Build options with explicit light-background colours so the image looks
+      // clean regardless of the user's current dashboard theme.
+      const DL_INK   = "#2e2e2e";
+      const DL_MUTED = "#5a5a5a";
+      const DL_GRID  = "rgba(0,0,0,0.09)";
+      const dlAxisX = { grid: { color: DL_GRID }, ticks: { color: DL_MUTED, font: { family: CHART_FONT, size: 12 } } };
+      const dlAxisY = { grid: { color: DL_GRID }, ticks: { color: DL_MUTED, font: { family: CHART_FONT, size: 12 }, callback: fmtAxis } };
+      const dlLegend = { labels: { color: DL_INK, font: { family: CHART_FONT, size: 13 }, padding: 18 } };
+
+      const baseOpts = cfg.options;
+      const dlOptions = {
+        ...baseOpts,
+        animation: false,
+        responsive: false,
+        plugins: {
+          ...baseOpts.plugins,
+          legend: { ...baseOpts.plugins?.legend, ...dlLegend },
+          title:  {
+            ...baseOpts.plugins?.title,
+            color: DL_INK,
+            font: { ...(baseOpts.plugins?.title?.font ?? {}), family: CHART_FONT, size: 14, weight: "700" }
+          }
+        },
+        scales: isRadar
+          ? {
+              r: {
+                ...baseOpts.scales?.r,
+                ticks:       { ...(baseOpts.scales?.r?.ticks ?? {}),       color: DL_MUTED, backdropColor: "transparent", font: { family: CHART_FONT, size: 11 } },
+                grid:        { color: DL_GRID },
+                angleLines:  { color: DL_GRID },
+                pointLabels: { color: DL_INK,  font: { family: CHART_FONT, size: 14, weight: "600" } }
+              }
+            }
+          : {
+              x: { ...baseOpts.scales?.x, ...dlAxisX, stacked: !!baseOpts.scales?.x?.stacked },
+              y: { ...baseOpts.scales?.y, ...dlAxisY, stacked: !!baseOpts.scales?.y?.stacked }
+            }
+      };
 
       const tmpChart = new Chart(cv, {
         type: cfg.type,
         data: cfg.data,
-        options: { ...cfg.options, animation: false, responsive: false },
-        plugins: [_makeDataLabelPlugin()]
+        options: dlOptions,
+        plugins: [bgPlugin, _makeDataLabelPlugin()]
       });
 
       _triggerJpgDownload(cv, cfg.caption);
       tmpChart.destroy();
-      document.body.removeChild(tmpDiv);
     }
 
     function _svgToJpg(svgEl, filename) {
@@ -1635,13 +1676,15 @@
       const history = HISTORY_DATA[runId];
       if (!history || history.length < 2) return;
 
-      // Build labeled version of the trend SVG
-      const html = buildTrendSvg(history, true);
-      const parser = new DOMParser();
-      const doc2   = parser.parseFromString(html.match(/<svg[\s\S]*?<\/svg>/)?.[0] || "<svg/>", "image/svg+xml");
-      const svgEl  = doc2.documentElement;
-      if (!svgEl || svgEl.nodeName !== "svg") return;
-      _svgToJpg(svgEl, "STV_Run_History_" + runId);
+      // Insert labeled SVG into a hidden container so the browser parses it properly
+      const tmpDiv = document.createElement("div");
+      tmpDiv.style.cssText = "position:fixed;left:-9999px;top:0;visibility:hidden";
+      tmpDiv.innerHTML = buildTrendSvg(history, true);
+      document.body.appendChild(tmpDiv);
+      const svgEl = tmpDiv.querySelector("svg");
+      if (svgEl) _svgToJpg(svgEl, "STV_Run_History_" + runId);
+      // _svgToJpg serialises the SVG immediately; DOM node no longer needed
+      document.body.removeChild(tmpDiv);
     }
 
     async function generateExecutivePDF() {
