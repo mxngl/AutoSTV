@@ -828,11 +828,10 @@
     let _loadedData = [];
 
     const RUNS = [
-      { id: "stv_project", title: "Project STV", subtitle: "Combined project-level result across individual STV runs" },
-      { id: "stv_architecture", title: "Architectural STV", subtitle: "Derived from the Revit architecture takeoff" },
-      { id: "stv_structural", title: "Structural STV", subtitle: "Derived from the Revit structural schedule" },
-      { id: "stv_mep", title: "Mechanical STV", subtitle: "Derived from the Revit MEP takeoff" },
-      { id: "stv_example", title: "Example STV", subtitle: "Reference example generated from bundled inputs" }
+      { id: "Feb",     path: "Feb-20260515T191941Z-3-001/Feb/project",         title: "February",  subtitle: "February snapshot — combined project-level result" },
+      { id: "Mar",     path: "Mar-20260515T191942Z-3-001/Mar/project",         title: "March",     subtitle: "March snapshot — combined project-level result" },
+      { id: "Apr",     path: "Apr-20260515T191937Z-3-001/Apr/project",         title: "April",     subtitle: "April snapshot — combined project-level result" },
+      { id: "Current", path: "Current-20260515T191939Z-3-001/Current/project", title: "Current",   subtitle: "Current snapshot — combined project-level result" },
     ];
 
     const CHART_METRICS = ["carbon", "energy", "water"];
@@ -2055,7 +2054,8 @@
     }
 
     async function loadRun(run) {
-      const response = await fetch(`outputs/${run.id}/stv_results.json`, { cache: "no-store" });
+      const base = run.path ?? run.id;
+      const response = await fetch(`outputs/${base}/stv_results.json`, { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`Missing results for ${run.id}`);
       }
@@ -2063,7 +2063,8 @@
     }
 
     async function loadHistory(run) {
-      const response = await fetch(`outputs/${run.id}/history.json`, { cache: "no-store" });
+      const base = run.path ?? run.id;
+      const response = await fetch(`outputs/${base}/history.json`, { cache: "no-store" });
       if (!response.ok) {
         return [];
       }
@@ -2088,8 +2089,8 @@
       }
       _loadedData = loaded;
 
-      // Hero scorecard — use project STV if available, else first loaded
-      const projectEntry = loaded.find(e => e.run.id === "stv_project") ?? loaded[0];
+      // Hero scorecard — use Current snapshot if available, else first loaded
+      const projectEntry = loaded.find(e => e.run.id === "Current") ?? loaded[0];
       const heroEl = document.getElementById("hero-scorecard");
       heroEl.innerHTML = buildHeroScorecard(projectEntry.results);
       heroEl.removeAttribute("hidden");
